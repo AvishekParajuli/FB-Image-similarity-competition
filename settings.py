@@ -1,11 +1,16 @@
-BATCH_SIZE =4
+BATCH_SIZE =16
 IM_SIZE = (160,160)
 imsize=IM_SIZE[0]
-LR =0.0001
+LR =0.001
+ALPHA = 0.8
+DEBUG=False
+
 anchor_file_list = './list_files/subset_1_queries'
-anchor_img_dir = "./query"
 ref_file_list = './list_files/subset_1_references'
-ref_img_dir = "./reference"
+#ref_img_dir = "D:/prjs/im-similarity/data/reference"
+#anchor_img_dir = "D:/prjs/im-similarity/data/query"
+ref_img_dir = "C:/Users/parajav/PycharmProjects/isc/reference/reference"
+anchor_img_dir = 'C:/Users/parajav/PycharmProjects/isc/query'
 
 
 
