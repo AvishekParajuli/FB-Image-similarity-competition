@@ -190,6 +190,7 @@ def evaluate(
 ) -> Metrics:
     predictions = sanitize_predictions(predictions)
     y_true, probas_pred = to_arrays(gt_matches, predictions)
+    print("*******Total no of correct predictions: ",len(probas_pred[y_true]))
     p, r, t = precision_recall(y_true, probas_pred, len(gt_matches))
     ap = average_precision(r, p)
     pp90, rp90, tp90 = find_operating_point(p, r, t, required_x=0.9)  # @Precision=90%
