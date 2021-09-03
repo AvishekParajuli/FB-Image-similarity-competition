@@ -193,13 +193,16 @@ if __name__ == "__main__":
     aa("--ip", default=False, action="store_true", help="use inner product rather than L2 to compare descriptors")
     aa("--write_predictions", help="write predictions to this output file (for debugging)")
     aa("--orb", default=False,action="store_true", help="write predictions to this output file (for debugging)")
-    aa("--net", default=True, action="store_true", help="write predictions to this output file (for debugging)")
+    aa("--net", default=False, action="store_true", help="write predictions to this output file (for debugging)")
 
     group = parser.add_argument_group("output")
     aa("--pr_curve_filepath", default="", help="output file for P-R curve")
     aa("--title", default="", help="title of the plot")
 
     args = parser.parse_args()
+    if args.db_descs[0] == 'list':
+        args.db_descs = ['./data/embed/full_ref_em_'+str(i)+'resnet50Reg0.8'+'.hdf5' for i in range(20)]
+        #/ data / embed / full_ref_em_18
     if args.net:
         compute_metrics_net(args)
     elif args.orb:
