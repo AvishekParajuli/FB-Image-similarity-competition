@@ -2,8 +2,9 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 from settings import * # importing all the variables and Cosntants
-#from models.resnet_50good import preprocess, get_model_name
 from models.resnet50Reg import preprocess, get_model_name
+from augument import * # add_noise
+import time
 
 
 def myModelName():
@@ -18,6 +19,36 @@ def plot_triplets(examples):
         plt.yticks([])
     plt.show()
 
+def plot_batches(batchdata):
+    images = batchdata[1]
+    names = batchdata[0]
+    ntotal = len(images)
+    plt.figure(figsize=(6, 2))
+    for i in range(ntotal):
+        plt.subplot(1, ntotal, 1 + i)
+        plt.imshow(np.squeeze(images[i]))
+        plt.title(names[i])
+        plt.xticks([])
+        plt.yticks([])
+    plt.show()
+
+def sanitizeNegativeData(selected_q_ids, negdata):
+    totallen = len(negdata[0])
+    for indx,value  in enumerate(negdata[0]):
+        matchingIdxs=[]
+        if (value == selected_q_ids[indx]):
+            print("same ids found at{}; swaping with -1 ".format(indx))
+            currData = negdata[1][indx]
+            negdata[0][indx] = negdata[0][(indx-1)%totallen] #chanigng the ids
+            negdata[1][indx] = negdata[1][(indx - 1) % totallen]  # chanigng the image data
+
+            negdata[0][(indx - 1) % totallen] = value
+            negdata[1][(indx - 1) % totallen] = currData
+
+    return negdata
+
+
+
 
 def read_image(imname):
     """Choose an image from our training or test data with the
@@ -25,16 +56,18 @@ def read_image(imname):
     im = cv2.imread(imname)
     img = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
     #img= img/255
-    img = cv2.resize(img,IM_SIZE )
+    img = cv2.resize(img,IM_SIZE, interpolation=cv2.INTER_AREA)
 
     return img
 
 
-def get_triplet(idx, negidx=-1):
+def get_triplet(idx, negidx=-1, mode =''):
     """Choose a triplet (anchor, positive, negative) of images
     such that anchor and positive have the same label and
     anchor and negative have different labels."""
     a= read_image(Q_List[idx])
+    if mode =='train':
+        a = apply_augumentation(a)
     p = read_image(R_List[idx])
     if negidx== -1:
       #generate random index for neg
@@ -43,7 +76,7 @@ def get_triplet(idx, negidx=-1):
 
     return a, p, n
 
-def generate_triplets(start=0,stop=4991, BATCH_SIZE=BATCH_SIZE):
+def generate_triplets(start=0,stop=4991, BATCH_SIZE=BATCH_SIZE, mode =''):
     """Generate an un-ending stream (ie a generator) of triplets for
     training or test."""
     np.random.RandomState(seed=32)
@@ -55,7 +88,7 @@ def generate_triplets(start=0,stop=4991, BATCH_SIZE=BATCH_SIZE):
         for i in range(BATCH_SIZE):
             #get random idx
             idx = np.random.randint(start, stop)
-            a, p, n = get_triplet(idx)
+            a, p, n = get_triplet(idx, mode=mode)
             list_a.append(a)#anchor(query)
             list_p.append(p)#positive(reference)
             list_n.append(n)#negative(reference)
@@ -71,7 +104,138 @@ def generate_triplets(start=0,stop=4991, BATCH_SIZE=BATCH_SIZE):
         label = np.ones(BATCH_SIZE)
         yield [A, P, N], label
 
-def generate_offline_triplets(qryIds,negIds,start, stop, BATCH_SIZE=BATCH_SIZE):
+
+def generate_dev_triplets(public_gt_array,batch_sz=16):
+
+    subset_ref_filename = './data/image/im_subset_ref.hdf5'
+    dev_query_filename = './data/image/image_dev_queries.hdf5'
+    neg_ref_filename = './data/image/image_extended_Ref.hdf5'
+
+    ref_loader = Hdf5Sequence(subset_ref_filename, idlist='', batch_size=1)
+    query_loader = Hdf5Sequence(dev_query_filename, idlist='', batch_size=1)
+    neg_loader = Hdf5Sequence(neg_ref_filename, idlist='', batch_size=1)
+    TOTAL = 25000  # 25k
+
+    ref_counter = 0
+    neg_counter = 0
+    image = np.zeros((160, 160, 3))
+    pos = np.zeros((160, 160, 3))
+    neg = np.zeros((160, 160, 3))
+    # batchData = np.zeros(shape =(bs,160,160,3))
+    list_a = []
+    list_p = []
+    list_n = []
+    lenArr = len(public_gt_array)
+    for idx, row in enumerate(public_gt_array):
+        q_id, r_id = row
+        q_d = query_loader[idx]
+        # q_d[0]= id, q_d[1] == image
+        # row[0] = q_id= q_d[idx] always
+        image = q_d[1]
+        if r_id != '':
+            r_d = ref_loader[ref_counter]
+            ref_counter += 1
+            if row[1] == r_d[0]:
+                pos = r_d[1]
+            else:
+                pos = apply_augumentation(image)
+        else:
+            pos = apply_augumentation(image)
+            # add noisy image of query as positive refernece
+        n_d = neg_loader[neg_counter]
+        if row[0] == n_d[0]:
+            neg = n_d[1]
+            neg_counter += 1
+        else:
+            neg = ref_loader[idx + np.random.randint(1, 100)][1]
+        list_a.append(image)
+        list_p.append(pos)
+        list_n.append(neg)
+        if idx%batch_sz ==0:
+            list_a = []
+            list_p = []
+            list_n = []
+            yield [np.array(list_a), np.array(list_p), np.array(list_n)], np.ones(batch_sz)
+
+def generate_triplets_hdfseq(start=0,stop=4991, batch_sz=16, mode=''):
+
+    subset_ref_filename = './data/image/im_subset_ref.hdf5'
+    query_filename = './data/image/im_subset_query.hdf5'
+    #neg_ref_filename =  './data/image/mergedRefExtended_0to2.hdf5'
+    neg_ref_filename = './data/image/image_extended_Ref.hdf5'# this is faster due to smaller size or contiguous
+    prep = True #default
+    if mode == 'train':
+        prep = False
+    query_loader = Hdf5Sequence(query_filename, idlist='', batch_size=1,prep=prep)
+    ref_loader = Hdf5Sequence(subset_ref_filename, idlist='', batch_size=1)
+    neg_loader = Hdf5Sequence(neg_ref_filename, idlist='', batch_size=batch_sz)
+    datalenNeg = len(neg_loader)
+    datalenRef = len(ref_loader)
+    print("Inside: generate_triplets_hdfseq: total seq data= {}, neg data= {}".format(datalenRef, datalenNeg*batch_sz))
+    currentRow =0
+
+    while True:
+        list_a = np.zeros((batch_sz,160,160,3))
+        list_p = np.zeros((batch_sz,160,160,3))
+        list_n = np.zeros((batch_sz,160,160,3))
+        #print("currentRow = ",currentRow)
+
+        timeStart = time.time()
+        selected_q_ids =[]
+
+        for i in range(batch_sz):
+            # get random idx
+            idx = np.random.randint(start, stop)
+            a= query_loader[idx][1]
+            p = ref_loader[idx][1]
+            curr_q_id = ref_loader[idx][0]
+            selected_q_ids.append(curr_q_id)
+            #negidx = np.random.randint(start, stop)
+            #print("curr_q_id = {}, idx={}, negidx={}".format(curr_q_id,idx,negidx))
+            '''
+            while neg_loader[negidx][0]==curr_q_id:
+                #worst case scenario when negID equal the anchor ID
+                print("inside here, ")
+                negidx = np.random.randint(0, datalenNeg)
+                # try until the ids are different
+            '''
+            #n = ref_loader[negidx][1]
+            if mode == 'train':
+                a = apply_augumentation(a)
+            #a, p, n = get_triplet(idx, mode=mode)
+            #list_a.append(np.squeeze(a))  # anchor(query)
+            #list_p.append(np.squeeze(p))  # positive(reference)
+            #list_n.append(np.squeeze(n))  # negative(reference)
+            #print(" i={}, negidx ={} ".format(i, negidx))
+            try:
+                list_a[i, :, :, :] = np.squeeze(a)
+                list_p[i, :, :, :] = np.squeeze(p)
+                #list_n[i, :, :, :] = np.squeeze(n)
+            except :
+                print("error at idx={}, and negidx={}, mode={}".format(idx,negidx, mode))
+        negidx = np.random.randint(0, datalenNeg)
+        #print("current negidx= ",negidx)
+        negdata = neg_loader[negidx]#[currentRow]
+        outnegData = sanitizeNegativeData(selected_q_ids, negdata)
+        list_n= np.squeeze(outnegData[1])
+
+        currentRow += 1
+        if mode == 'train':
+            list_a = preprocess(np.array(list_a, dtype='float32')) #since query image wasn't preprocessed
+        label = np.ones((batch_sz,1))
+        timestop = time.time()
+        if DEBUG:
+            print("Time for batchdata collection {} mins".format((timestop - timeStart) / 60))
+        #yield [np.array(list_a), np.array(list_p), np.array(list_n)], label
+        yield [list_a, list_p, list_n], label
+
+
+def apply_augumentation(image):
+    img1 = apply_augumentaion_wrapper(image)
+    #img1 = add_noise(image)
+    return img1
+
+def generate_offline_triplets(qryIds,negIds,start, stop, BATCH_SIZE=BATCH_SIZE, mode=''):
     """Generate an un-ending stream (ie a generator) of triplets for
     training or test."""
     #np.random.RandomState(seed=32)
@@ -96,7 +260,7 @@ def generate_offline_triplets(qryIds,negIds,start, stop, BATCH_SIZE=BATCH_SIZE):
             else:
                 negId =-1 # choose random negindex
 
-            a, p, n = get_triplet(idx, negId)
+            a, p, n = get_triplet(idx, negId,mode=mode)
             list_a.append(a)#anchor(query)
             list_p.append(p)#positive(reference)
             list_n.append(n)#negative(reference)
@@ -185,7 +349,7 @@ def get_batch_hard(network,traingen, draw_batch_size=100,actual_batch_size=32):
     label = np.ones(len(selection))
 
     return triplets,label
-def chooseSemiHardNTriplets(ap, an, alpha=0.2):
+def chooseSemiHardNTriplets(ap, an, alpha=ALPHA):
     """
        Create batch of APN "semi-hard" Negativetriplets that statisfies the conditions below:
        cond1: d(A,P)<d(A,N)
@@ -203,7 +367,7 @@ def chooseSemiHardNTriplets(ap, an, alpha=0.2):
     #print("outindex length= ", len(outindex))
     return outindex
 
-def get_batch_semihardNeg(network,traingen, draw_batch_size=100,actual_batch_size=32,alpha=0.2):
+def get_batch_semihardNeg(network,traingen, draw_batch_size=100,actual_batch_size=32,alpha=ALPHA):
     """
        Create batch of APN "semi-hard" Negativetriplets that statisfies the conditions below:
        cond1: d(A,P)<d(A,N)
@@ -216,7 +380,7 @@ def get_batch_semihardNeg(network,traingen, draw_batch_size=100,actual_batch_siz
        Returns:
        triplets -- list containing 3 tensors A,P,N of shape (hard_batchs_size+norm_batchs_size,w,h,c)
     """
-    hard_batchs_size = int(0.75*actual_batch_size)
+    hard_batchs_size = int(0.5*actual_batch_size)
     norm_batchs_size = actual_batch_size-hard_batchs_size
     # Step 1 : pick a random batch to study
     #studybatch,labels = generate_triplets(start=0,stop=4991, BATCH_SIZE=draw_batch_size)
@@ -257,34 +421,42 @@ def get_batch_semihardNeg(network,traingen, draw_batch_size=100,actual_batch_siz
 
     return triplets,label
 
+
 import keras
 import h5py
 import math
 class Hdf5Sequence(keras.utils.Sequence):
 
-    def __init__(self, myHd5File,idlist, batch_size):
+    def  __init__(self, myHd5File,idlist, batch_size, offset=0,prep=True):
         self.srcFile,self.Ids =  myHd5File,idlist
         self.batch_size = batch_size
         self.hh = h5py.File(myHd5File, "r")#call these only once
         self.data_size = self.hh["vectors"].shape[0]#
         self.size_per_batch = self.data_size/batch_size
         self.img_size = (160,160)#always for this case/project
+        self.offset = offset
+        self.prep = prep
 
     def __len__(self):
-        return math.ceil(self.data_size / self.batch_size)
-    def my_preprocess_img(self, img):
-        return img
+        return math.floor(self.data_size / self.batch_size)
+    def my_preprocess_img(self, imgBatch):
+        return preprocess(np.array(imgBatch, dtype='float32'))
 
     def __getitem__(self, idx):
         """Return tuple(input, id) or (img, id) correspondidng to batch #idx
                 single Call to getitem will return batch_size length of data"""
+        idx = idx % self.__len__()
         # start = current * size_per_batch
         # end = (current + 1) * size_per_batch
-        startIndex = idx * self.batch_size
-        stopIndex = startIndex + self.batch_size
+        startIndex = self.offset + idx * self.batch_size
+        stopIndex = self.offset+ startIndex + self.batch_size
         descs = []
         names = []
-        descs.append(np.array(self.hh["vectors"][startIndex:stopIndex]))
+        imgdata_batch = self.hh["vectors"][startIndex:stopIndex]
+        if self.prep:
+            imgdata_batch = self.my_preprocess_img(imgdata_batch)
+            #else do not preprocess
+        descs.append(imgdata_batch)
         names += np.array(self.hh["image_names"][startIndex:stopIndex], dtype=object).astype(str).tolist()
         '''
 
@@ -307,3 +479,4 @@ class Hdf5Sequence(keras.utils.Sequence):
         return batch_imgs
         '''
         return names, np.vstack(descs)
+
