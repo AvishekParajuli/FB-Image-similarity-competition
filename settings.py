@@ -1,18 +1,18 @@
 BATCH_SIZE =16
 IM_SIZE = (160,160)
 imsize=IM_SIZE[0]
-LR =0.001
+LR = 1e-4
 ALPHA = 0.8
 DEBUG=False
 
 anchor_file_list = './list_files/subset_1_queries'
 ref_file_list = './list_files/subset_1_references'
-#ref_img_dir = "D:/prjs/im-similarity/data/reference"
-#anchor_img_dir = "D:/prjs/im-similarity/data/query"
-ref_img_dir = "C:/Users/parajav/PycharmProjects/isc/reference/reference"
-anchor_img_dir = 'C:/Users/parajav/PycharmProjects/isc/query'
 
+#ref_img_dir = "C:/Users/parajav/PycharmProjects/isc/reference/reference"
+#anchor_img_dir = 'C:/Users/parajav/PycharmProjects/isc/query'
 
+anchor_img_dir = "./query"
+ref_img_dir = "./reference"
 
 '''
     aa('--anchor_file_list', default='./list_files/subset_1_queries', help="CSV file with query image filenames")
