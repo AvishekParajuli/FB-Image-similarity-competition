@@ -2,17 +2,19 @@ BATCH_SIZE =16
 IM_SIZE = (160,160)
 imsize=IM_SIZE[0]
 LR = 1e-4
-ALPHA = 0.8
+ALPHA = 1.0
 DEBUG=False
+PATIENCE = 70
+EM_DIM = 4096
 
 anchor_file_list = './list_files/subset_1_queries'
 ref_file_list = './list_files/subset_1_references'
-
+ref_img_dir = "./data/image/reference"
+anchor_img_dir = "./data/image/query"
 #ref_img_dir = "C:/Users/parajav/PycharmProjects/isc/reference/reference"
 #anchor_img_dir = 'C:/Users/parajav/PycharmProjects/isc/query'
 
-anchor_img_dir = "./query"
-ref_img_dir = "./reference"
+
 
 '''
     aa('--anchor_file_list', default='./list_files/subset_1_queries', help="CSV file with query image filenames")
@@ -44,6 +46,8 @@ def getImIds(file_list, image_dir, i0=0, i1=-1):
 
 q_image_list,q_ids = getImIds(anchor_file_list,anchor_img_dir)
 ref_image_list, ref_ids = getImIds(ref_file_list, ref_img_dir)
+
+#T_List, T_IDS = getImIds('./list_files/train',"./data/image/train" )
 
 Q_List = q_image_list
 R_List = ref_image_list

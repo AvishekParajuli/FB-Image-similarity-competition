@@ -15,14 +15,16 @@ import os
 import random
 from pathlib import Path
 from settings import * # importing all the variables and Cosntants
-from models.resnet50Reg import *
-#from models.resnet50Custom import *
-from keras.callbacks import EarlyStopping,ModelCheckpoint, TensorBoard
+from getmodel import *
+
+import tensorflow
+from tensorflow import keras
+from tensorflow.keras.callbacks import EarlyStopping,ModelCheckpoint, TensorBoard
 from importlib import reload
 import loader
 reload (loader)
 #from loader.fb_image_gen import *
-from loader.fb_image_gen_pre import *
+from loader.fb_image_gen_pre_tf import *
 import pickle
 from datetime import datetime
 import time
@@ -69,6 +71,12 @@ def getArgOptions():
     #print("reading anchor image names from", args.anchor_file_list)
     #print("reading ref image names from", args.ref_file_list)
     return args
+def print_date():
+    from datetime import datetime
+    now = datetime.now()
+    dt_string = now.strftime("%d-%m-%Y_H%H_M%M")
+    print("current date time: ",dt_string)
+    
 def train_basic(model, base_model, epochs=10,batchsize = 32):
     image_count= 4976# this si actual length of data in seq--------- len(Q_List)
     train_stop_idx = 0.9*image_count
@@ -76,7 +84,7 @@ def train_basic(model, base_model, epochs=10,batchsize = 32):
 
     #train_generator = generate_triplets(start=0,stop=train_stop_idx,BATCH_SIZE=bs,mode='train')
     #test_generator = generate_triplets(start=train_stop_idx+1, stop=image_count-1, BATCH_SIZE=bs)
-    train_generator = generate_triplets_hdfseq(start=0,stop=train_stop_idx, batch_sz=bs, mode='train')
+    train_generator = generate_triplets_hdfseq(start=0,stop=train_stop_idx, batch_sz=bs)
     test_generator = generate_triplets_hdfseq(start=train_stop_idx+1, stop=image_count-1, batch_sz=bs)
     data = next(train_generator)
     #plot_triplets(data)
@@ -88,12 +96,12 @@ def train_basic(model, base_model, epochs=10,batchsize = 32):
     #model.summary()
     modelFilePath = "./models/weights/"
     from datetime import datetime
-
     now = datetime.now()
     dt_string = now.strftime("%d-%m-%Y_H%H_M%M")
+    print_date()
     model_save_name = modelFilePath+"model_" + get_model_name() + "_EP" + str(EPOCHS) + "_" + dt_string + ".hdf5"
     embeddings_save_name = modelFilePath+"em_" + get_model_name() + "_EP" + str(EPOCHS) + "_" + dt_string + ".hdf5"
-    print("model weights filepath name is: ",model_save_name)
+    #print("model weights filepath name is: ",model_save_name)
 
     stps= train_stop_idx//bs
     my_callbacks =[EarlyStopping(patience=PATIENCE),
@@ -118,36 +126,21 @@ def train_basic(model, base_model, epochs=10,batchsize = 32):
     b_em = np.squeeze(base_model.predict(adata[0][1]))
     c_em = np.squeeze(base_model.predict(adata[0][2]))
 
-    print("difference between anchor and Positive:",np.sum(a_em-b_em))
-    print("difference between anchor and negative:", np.sum(a_em - c_em))
     #this sum(square) metric is better
     print("sum(square)difference between anchor and Positive:", np.sum(np.square(a_em - b_em)))
     print("sum(square)difference between anchor and negative:", np.sum(np.square(a_em - c_em)))
-    '''
-
-
-    import time
-    timestart = time.time()
-    c1_em = base_model.predict(data[0][2])#directly predict on batch to speed up
-    timestop = time.time()
-    print("Time for prediction {} ms".format((timestop - timestart)*1000))
-
-    timestart = time.time()
-    score = cosine_similarity(a_em, b_em)
-    timestop = time.time()
-    print("Time for cosine similarity{} ms".format((timestop - timestart) * 1000))
-    print("cosine sim between anchor and Positive:", score)
-    print("cosine similarity between anchor and negative:", cosine_similarity(a_em, c_em))
-    '''
+    
     return model, base_model
 
 def train_basic_traindev(model, base_model, epochs=10,batchsize = 32):
-    image_count= 500#100_00# this si actual length of data in seq--------- len(Q_List)
-    train_stop_idx = 0.9*image_count
+    image_count= 50000 #100_00# this si actual length of data in seq--------- len(Q_List)
+    train_stop_idx = 1.0*image_count
     bs=batchsize
+    
+    print_date()
 
-    train_generator = generate_triplets_train_imgs(start=0,stop=train_stop_idx,BATCH_SIZE=bs)
-    test_generator = generate_triplets( BATCH_SIZE=bs)
+    train_generator = generate_triplets_train_hdfseq(start=0, stop=train_stop_idx, batch_sz=bs)
+    test_generator = generate_triplets_hdfseq( batch_sz=bs)
     data = next(train_generator)
     #plot_triplets(data)
     EPOCHS = epochs
@@ -156,10 +149,12 @@ def train_basic_traindev(model, base_model, epochs=10,batchsize = 32):
 
     stps= train_stop_idx//bs
     my_callbacks =[EarlyStopping(patience=20),
-                   ModelCheckpoint(filepath=modelFilePath+'model.h5',
+                   ModelCheckpoint(filepath=modelFilePath+'model_traindev.hdf5',
                                    save_weights_only=True,save_best_only=True,monitor='val_loss'),
                    TensorBoard(log_dir='./models/logs')]
-    valid_Stps = (image_count-train_stop_idx)//bs
+    valid_Stps = (4991)//bs
+    print("Starting train dev training process!")
+    print("-------------------------------------")
     history = model.fit_generator(train_generator,epochs=EPOCHS, steps_per_epoch=stps,
                                   validation_data=test_generator, validation_steps=valid_Stps, callbacks=my_callbacks,
                                   verbose=1)
@@ -172,8 +167,6 @@ def train_basic_traindev(model, base_model, epochs=10,batchsize = 32):
     b_em = np.squeeze(base_model.predict(adata[0][1]))
     c_em = np.squeeze(base_model.predict(adata[0][2]))
 
-    print("difference between anchor and Positive:",np.sum(a_em-b_em))
-    print("difference between anchor and negative:", np.sum(a_em - c_em))
     #this sum(square) metric is better
     print("sum(square)difference between anchor and Positive:", np.sum(np.square(a_em - b_em)))
     print("sum(square)difference between anchor and negative:", np.sum(np.square(a_em - c_em)))
@@ -195,7 +188,7 @@ def test_hardbatch(model, base_model, epochs, batchsize = 32, largeBS = 100):
     large_Generator = generate_triplets(start=0, stop=train_stop_idx, BATCH_SIZE=largeBS,mode ='train')
     test_generator = generate_triplets(start=train_stop_idx+1, stop=image_count-1, BATCH_SIZE=bs)
     if usehdf5Sequence:
-        large_Generator = generate_triplets_hdfseq(start=0, stop=train_stop_idx, batch_sz=largeBS, mode='train')
+        large_Generator = generate_triplets_hdfseq(start=0, stop=train_stop_idx, batch_sz=largeBS)
         test_generator = generate_triplets_hdfseq(start=train_stop_idx + 1, stop=image_count - 1, batch_sz=bs)
     #model = complete_model(base_model)
     #model.compile(loss=identity_loss, optimizer=Adam(1e-4))
@@ -206,13 +199,7 @@ def test_hardbatch(model, base_model, epochs, batchsize = 32, largeBS = 100):
     #base_model.load_weights(modelFilePath + "Embeddings_best.hdf5")
     #model.load_weights(modelFilePath + "complete_res18_best.hdf5")
     EPOCHS = epochs
-
-
-    now = datetime.now()
-    dt_string = now.strftime("%d-%m-%Y_H%H_M%M")
-    model_save_name = modelFilePath + "model_" + get_model_name() + "_EP" + str(EPOCHS) + "_" + dt_string + ".hdf5"
-    embeddings_save_name = modelFilePath + "em_" + get_model_name() + "_EP" + str(EPOCHS) + "_" + dt_string + ".hdf5"
-    print("model weights filepath name is: ", model_save_name)
+    print_date()
 
     #history = model.fit_generator(hardbatch_gen, epochs=2, steps_per_epoch=10,
     #                              validation_data=test_generator, validation_steps=10)
@@ -259,6 +246,64 @@ def test_hardbatch(model, base_model, epochs, batchsize = 32, largeBS = 100):
     #base_model.save_weights(embeddings_save_name)
     return model, base_model
 
+
+def test_hardbatch_traindev(model, base_model, epochs, batchsize = 20, largeBS = 100):
+    image_count = len(Q_List)#used for test
+    train_count = 50000
+    largeBS = largeBS
+    bs = batchsize
+    patience = PATIENCE
+    EPOCHS = epochs
+
+    large_Generator = generate_triplets_train_hdfseq(start=0, stop=train_count, batch_sz=largeBS, forcePrep = True)
+    test_generator = generate_triplets_hdfseq(start=0, stop=image_count-1, batch_sz=64)
+    
+    modelFilePath = "./models/weights/"
+    
+    print_date()
+
+    steps_per_ep = int(train_count//bs)
+    steps_per_eval = int((image_count)//bs)
+    n_iter = steps_per_ep*EPOCHS
+    n_iteration=0#starting count
+    best_val_loss = 1000
+    eval_every = min(1000,steps_per_ep)
+    best_val_index = 0
+
+    print("Starting Semi-Hard Negative training process!")
+    print("-------------------------------------")
+    t_start = time.time()
+    for i in range(1, n_iter + 1):
+        #triplets,labels = get_batch_hard(base_model, large_Generator, draw_batch_size=largeBS,actual_batch_size=bs)
+        triplets,labels = get_batch_semihardNeg(base_model, large_Generator, draw_batch_size=largeBS,actual_batch_size=bs, alpha=ALPHA, hard_perct =0.5)
+        loss = model.train_on_batch(triplets, labels)
+        n_iteration += 1
+        if i % eval_every == 0:
+            print("{}/{} -------------".format(i,n_iter))
+            print("[{3}] Time for {0} iterations: {1:.1f} mins, Train Loss: {2}".format(i, (time.time() - t_start) / 60.0,
+                                                                                      loss, n_iteration))
+            val_loss = []
+            for ii in range(steps_per_eval):
+                data, labels = next(test_generator)
+                val_loss.append(model.predict_on_batch(data))
+            curr_val_loss = np.mean(np.mean(val_loss))
+            print("val_loss = ", curr_val_loss)
+            if(curr_val_loss <best_val_loss):
+                print("best loss found, previous: {}, current: {} ".format(best_val_loss,curr_val_loss))
+                best_val_loss = curr_val_loss
+                best_val_index = i
+                print("curr best_val_index= ", best_val_index)
+                base_model.save_weights(modelFilePath + "SMHD_traindev_base.hdf5")
+                #model.save_weights(modelFilePath + "complete_res18_best.hdf5")
+        if ((n_iteration - best_val_index) > patience * steps_per_ep):
+            print("best val loss={}, at iter={}".format(best_val_loss, best_val_index))
+            break
+
+            #probs, yprob = compute_probs(network, x_test_origin[:n_val, :, :, :], y_test_origin[:n_val])
+    #model.save_weights(model_save_name)
+    #base_model.save_weights(embeddings_save_name)
+    return model, base_model
+
 def getHardNegList(I, k =1):
   out =[]
   lenI= len(I)
@@ -270,6 +315,18 @@ def getHardNegList(I, k =1):
   non_matching_idx = [i for i in range(lenI) if i not in matches]
   negIdx = [I[ii][0] for ii in non_matching_idx]
   return non_matching_idx, negIdx
+def combine_Is(Icurr, Iprev):
+  queryId1, negId1 = getHardNegList(Icurr)
+  queryId2, negId2 = getHardNegList(Iprev)
+  Inew = Icurr.copy()
+  diffIndex = [ idx  for idx,val in enumerate(queryId2) if val not in queryId1]
+  #print("diff index ={}".format(diffIndex))
+  newqryId = [ queryId2[id] for id in diffIndex]
+  #print("newqrryId =", newqryId)
+  cnt=0
+  for idx, val in enumerate(newqryId):
+    Inew[val] = negId2[diffIndex[idx]]
+  return Inew
 
 def test_hardOfflineBatch(model, base_model, epochs,batchsize = 16):
     Isaved = pickle.load(open("./data/L2Index_2_prev.p", "rb"))
@@ -281,23 +338,16 @@ def test_hardOfflineBatch(model, base_model, epochs,batchsize = 16):
     bs = batchsize
     EPOCHS = epochs #10
     patience = PATIENCE  # in epochs
-    train_generator = generate_offline_triplets(queryId, negId, 0, train_stop, BATCH_SIZE=bs,mode='train')
+    train_generator = generate_offline_triplets(queryId, negId, 0, count, BATCH_SIZE=bs)
     test_generator = generate_offline_triplets(queryId, negId, train_stop + 1, count, BATCH_SIZE=bs)
-
-
+    print_date()
     #model = complete_model(base_model)
     #model.compile(loss=identity_loss, optimizer=Adam(1e-4))
 
     modelFilePath = "./models/weights/"
     #base_model.load_weights(modelFilePath + "Embeddings_best.hdf5")
     #model.load_weights(modelFilePath + "complete_res18_best.hdf5")
-    '''
-    now = datetime.now()
-    dt_string = now.strftime("%d-%m-%Y_H%H_M%M")
-    model_save_name = modelFilePath + "model_" + get_model_name() + "_EP" + str(EPOCHS) + "_" + dt_string + ".hdf5"
-    embeddings_save_name = modelFilePath + "em_" + get_model_name() + "_EP" + str(EPOCHS) + "_" + dt_string + ".hdf5"
-    print("model weights filepath name is: ", model_save_name)
-    '''
+    
 
     #history = model.fit_generator(hardbatch_gen, epochs=2, steps_per_epoch=10,
     #                              validation_data=test_generator, validation_steps=10)
@@ -324,6 +374,82 @@ def test_hardOfflineBatch(model, base_model, epochs,batchsize = 16):
             val_loss = []
             for ii in range(eval_steps):
                 data, labels1 = next(test_generator)
+                val_loss.append(model.predict_on_batch(data))
+            curr_val_loss = np.mean(np.mean(val_loss))
+            print("val_loss = ", curr_val_loss)
+            if(curr_val_loss <best_val_loss):
+                print("best loss found, previous: {}, current: {} ".format(best_val_loss,curr_val_loss))
+                best_val_loss = curr_val_loss
+                best_val_index = i
+                print("curr best_val_index= ", best_val_index)
+                base_model.save_weights(modelFilePath + "OFF_Embeddings_res50_best.hdf5")
+                #model.save_weights(modelFilePath + "complete_res50_best.hdf5")
+        if ((n_iteration - best_val_index) > patience * steps_per_ep):
+            print("best val loss={}, at iter={}".format(best_val_loss, best_val_index))
+            break
+    #model.save_weights(modelFilePath + "complete_final.hdf5")
+    #base_model.save_weights(modelFilePath + "Embeddings_final.hdf5")
+    return model, base_model
+def merge_triplets(triplets1,triplets2):
+  a1,p1,n1 = triplets1
+  a2,p2,n2 = triplets2
+  A = np.vstack((a1,a2))
+  P = np.vstack((p1,p2))
+  N = np.vstack((n1,n2))
+  return [A, P, N]
+
+def test_hardOffline_online_Batch(model, base_model, epochs,batchsize = 16,pat=100):
+    Isaved = pickle.load(open("./data/L2Index_2_prev.p", "rb"))
+    queryId, negId = getHardNegList(Isaved)
+
+    count = len(queryId)
+    train_stop = int(0.8 * count)
+    print("train_stop= ", train_stop)
+    bs = batchsize
+    EPOCHS = epochs #10
+    patience = pat  # in epochs
+    large_Generator = generate_triplets_train_hdfseq(start=0, stop=50000, batch_sz=100, forcePrep = True)
+    
+    train_generator = generate_offline_triplets(queryId, negId, 0, count, BATCH_SIZE=bs//2)
+    test_generator = generate_offline_triplets(queryId, negId, train_stop + 1, count, BATCH_SIZE=bs)
+    print_date()
+    
+    modelFilePath = "./models/weights/"
+
+    steps_per_ep = int(count//bs)
+    n_iter = steps_per_ep*EPOCHS
+    n_iteration=0#starting count
+    best_val_loss = 1000
+    eval_steps = int((count - train_stop)//bs)+2
+    eval_every_nsteps = 300
+    best_val_index = 0
+
+    print("Starting HardOffline training process!")
+    print("-------------------------------------")
+    t_start = time.time()
+    for i in range(1, n_iter + 1):
+        triplets1,labels1 = next(train_generator)
+        triplets2,labels2 = get_batch_semihardNeg(base_model, large_Generator, draw_batch_size=100,actual_batch_size=bs//2, alpha=ALPHA, hard_perct =0.5)
+        #triplets = np.vstack((triplets1,triplets2))
+        triplets = merge_triplets(triplets1,triplets2)
+        labels = np.ones((bs,1))
+        #labels = np.vstack((labels1,labels2))
+        if i<2:
+            print("triplets1.shape={},tripelet2 ={},merged={}".format(triplets1[0].shape,triplets2[0].shape,triplets[0].shape))
+        try:
+          loss = model.train_on_batch(triplets, labels)
+        except Exception as e:
+          print("triplets1.shape={},tripelet2 ={},merged={}".format(triplets1[0].shape,triplets2[0].shape,triplets[0].shape))
+          print("********ERROR: labels shape",labels.shape)
+          print(f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}")
+        n_iteration += 1
+        if i % eval_every_nsteps == 0:
+            print("{}/{} -------------".format(i,n_iter))
+            print("[{3}] Time for {0} iterations: {1:.1f} mins, Train Loss: {2}".format(i, (time.time() - t_start) / 60.0,
+                                                                                      loss, n_iteration))
+            val_loss = []
+            for ii in range(eval_steps):
+                data, labels0 = next(test_generator)
                 val_loss.append(model.predict_on_batch(data))
             curr_val_loss = np.mean(np.mean(val_loss))
             print("val_loss = ", curr_val_loss)
@@ -379,7 +505,7 @@ def generate_subset_embeddings():
                                "C:/Users/parajav/PycharmProjects/isc/reference/reference")
     XD = gen_embeddingsSeq(base_model,'./data/image/im_subset_ref.hdf5', ids,
                            outFile='./data/embed/subset_ref_em_resnet50Reg.hdf5', batch=50)
-    d = 256
+    d = XD.shape[-1]#EM_DIM
     index = faiss.IndexFlatL2(d)
     k = 1
     index.add(XD)
@@ -405,7 +531,7 @@ def getBestThreshold(probas_pred, y_true):
     from sklearn.linear_model import LogisticRegression
     X = probas_pred.reshape(-1, 1)
     #***********weighted logistic classifier****************
-    w = {False: 1, True: 10}# change from 7 to 7.5 to see the effect(def:7.05)
+    w = {False: 1, True: 20}# change from 7 to 7.5 to see the effect(def:7.05)
     # define model
     lg2 = LogisticRegression(random_state=13, class_weight=w)
     # fit it
@@ -424,13 +550,17 @@ def get_optimizedmetrics(XQ, ids, XD, rids,outfileSuf='_', submission=False):
     from isc.metrics import evaluate, print_metrics
     from isc.io import read_ground_truth, read_descriptors, write_predictions
     from isc.descriptor_matching import knn_match_and_make_predictions
-
+    from scripts.compute_metrics import plot_pr_curve
+    print("XQ embedding array shape:", XQ.shape)
+    print("XD embedding array shape:", XD.shape)
+    
     predictions = knn_match_and_make_predictions(XQ[0:25000], ids[0:25000], XD, rids, 1, metric=faiss.METRIC_L2)
 
     # ids, XQ = read_descriptors(['./data/embed/full_query_em_resnet50Reg.hdf5'])
     gt_matches = read_ground_truth('./list_files/subset_1_ground_truth.csv')
     metrics = evaluate(gt_matches, predictions)
     print_metrics(metrics)
+    plot_pr_curve(metrics,"pr-curve-25k", "pr-curve25k.jpg")
 
     y_true, probas_pred = to_arrays(gt_matches, predictions)
     print("*******Total no of correct predictions: ", len(probas_pred[y_true]))
@@ -438,23 +568,38 @@ def get_optimizedmetrics(XQ, ids, XD, rids,outfileSuf='_', submission=False):
     bestThresh = getBestThreshold(probas_pred, y_true)[0]
     bestThresh = -bestThresh #negate
     if submission:
-        predictions = knn_match_and_make_predictions(XQ, ids, XD, rids, 1, metric=faiss.METRIC_L2, DIST_TH=bestThresh)
-        print("writing predictions to", './data/fullQ_Ref' + outfileSuf + '_submit.csv')
-        write_predictions(predictions, './data/fullQ_Ref' + outfileSuf + '_submit.csv')
-    else:
-        print("writing predictions to", './data/fullQ_exRef' + outfileSuf + '_raw.csv')
-        write_predictions(predictions, './data/fullQ_exRef' + outfileSuf + '_raw.csv')
-        with open('./list_files/mined_negsid' + outfileSuf + '.csv', "w") as pfile:
-            pfile.write("query_id,neg_id\n")
+        predictions = knn_match_and_make_predictions(XQ, ids, XD, rids, 1, metric=faiss.METRIC_L2)
+        print("writing predictions to", './data/fullQ_Ref' + outfileSuf + '_WoTH_submit.csv')
+        write_predictions(predictions, './data/fullQ_Ref' + outfileSuf + '_WoTH_submit.csv')
+        y_true, probas_pred = to_arrays(gt_matches, predictions)
+        metrics = evaluate(gt_matches, predictions)
+        print_metrics(metrics)
+        plot_pr_curve(metrics,"pr-curve-50k", "pr-curve50k.jpg")
+        with open('./list_files/fullQ_Ref_mined_negsid_WoTH' + outfileSuf + '.csv', "w") as pfile:
+            pfile.write("query_id,neg_id,score\n")
             for count, p in enumerate(predictions):
                 if (y_true[count] == False):
-                    row = f"{p.query},{p.db}"
+                    row = f"{p.query},{p.db},{p.score}"
                     pfile.write(row + "\n")
                 count += 1
+        del predictions
+        predictions = knn_match_and_make_predictions(XQ, ids, XD, rids, 1, metric=faiss.METRIC_L2, DIST_TH=bestThresh)
+        print("writing predictions to", './data/fullQ_Ref' + outfileSuf + '_WTH_submit.csv')
+        write_predictions(predictions, './data/fullQ_Ref' + outfileSuf + '_WTH_submit.csv')
+    else:
+        print("writing predictions to", './data/25kQ_Ref' + outfileSuf + '_raw.csv')
+        write_predictions(predictions, './data/25kQ_Ref' + outfileSuf + '_raw.csv')
+        with open('./list_files/25kQ_Ref_mined_negsid' + outfileSuf + '.csv', "w") as pfile:
+            pfile.write("query_id,neg_id,score\n")
+            for count, p in enumerate(predictions):
+                if (y_true[count] == False):
+                    row = f"{p.query},{p.db},{p.score}"
+                    pfile.write(row + "\n")
+                count += 1
+    print_date()
     del XQ, XD
 
 def generate_full_QueryEmbeddings(base_model='', base_model_filename='', outfileSuf ='_'):
-    from models.resnet50Reg import embedding_model
     if base_model =='':
         #load model weights only if base_model is empty
         base_model = embedding_model()
@@ -464,75 +609,65 @@ def generate_full_QueryEmbeddings(base_model='', base_model_filename='', outfile
             base_model.load_weights("./models/weights/" + "OFF_Em_res50_best.hdf5")
         else:
             base_model.load_weights(base_model_filename)
+    name = get_model_name()
     img_dir = "D:/prjs/im-similarity/data/query"#path doesn't matter, we are only using the ids
     _rimage_list, rids = getImIds('./list_files/subset_ref_extended',
                                  "C:/Users/parajav/PycharmProjects/isc/reference/reference")
     XD = gen_embeddingsSeq(base_model, './data/image/image_extended_Ref.hdf5', rids,
-                           outFile='./data/embed/subset_refExtended_em_resnet50Reg.hdf5', batch=50)
+                           outFile='./data/embed/subset_refExtended_em_'+name+'.hdf5', batch=50)
     # img_dir = 'C:/Users/parajav/PycharmProjects/isc/query' './list_files/subset_1_queries'
     _image_list, ids = getImIds('./list_files/dev_queries', img_dir)  # './list_files/dev_queries'
-    XQ =gen_embeddingsSeq(base_model, './data/image/image_dev_queries.hdf5',ids,
-                          outFile='./data/embed/full_query_em_resnet50Reg.hdf5', batch=50)
-    get_optimizedmetrics(XQ, ids, XD, rids, outfileSuf)
+    XQ =gen_embeddingsSeq(base_model, './data/image/image_dev_queries.hdf5',ids[0:25000],
+                          outFile='./data/embed/full_query_em_'+name+'.hdf5', batch=50)
+    get_optimizedmetrics(XQ, ids[0:25000], XD, rids, outfileSuf)
     del XQ, XD
-    '''
-    predictions = knn_match_and_make_predictions(XQ[0:25000], ids[0:25000], XD, rids, 1, metric=faiss.METRIC_L2)
-    del XQ, XD
-    #ids, XQ = read_descriptors(['./data/embed/full_query_em_resnet50Reg.hdf5'])
-    gt_matches = read_ground_truth('./list_files/subset_1_ground_truth.csv')
-    metrics = evaluate(gt_matches, predictions)
-    print_metrics(metrics)
-    print("writing predictions to", './data/fullQ_exRef'+outfileSuf+'_raw.csv')
-    write_predictions(predictions, './data/fullQ_exRef'+outfileSuf+'_raw.csv')
-    y_true, probas_pred = to_arrays(gt_matches, predictions)
-    print("*******Total no of correct predictions: ", len(probas_pred[y_true]))
-    print("*******Total no of incorrect predictions: ", len(probas_pred[y_true==False]))
-    getBestThreshold(probas_pred, y_true)
-    with open('./list_files/mined_negsid'+outfileSuf+'.csv', "w") as pfile:
-        pfile.write("query_id,neg_id\n")
-        for count, p in enumerate(predictions):
-            if(y_true[count]==False):
-                row = f"{p.query},{p.db}"
-                pfile.write(row + "\n")
-            count += 1
-    '''
-
-def generate_full_RefEmbeddings():
+    
+def generate_full_RefEmbeddings(base_model='', base_model_filename='',gen_embed=True):
     from isc.io import read_descriptors
-    base_model = embedding_model()
-    #base_model.load_weights("./models/weights/" + "OFF_Em_res50_best.hdf5")
-    base_model.load_weights("./models/weights/" + "resnet50Reg0.8Embeddings_final.hdf5")
+    if base_model =='':
+        #load model weights only if base_model is empty
+        base_model = embedding_model()
+        #base_model.load_weights("./models/weights/" + "resnet50goodEmbeddings_86_.hdf5")
+        #base_model.load_weights("./models/weights/" + "OFF_Em_res50_best.hdf5")
+        if base_model_filename == '':
+            base_model.load_weights("./models/weights/" + "OFF_Em_res50_best.hdf5")
+        else:
+            base_model.load_weights(base_model_filename)
+    
     name = get_model_name()
-
     ref_file_list = './list_files/references'
     ref_img_dir = 'C:/Users/parajav/PycharmProjects/isc/reference/reference'
     ref_image_list, ref_ids = getImIds(ref_file_list, ref_img_dir)
-
-    print("totoal IDS:", len(ref_ids))
-    interval = 50000#50K
-    iters = int(len(ref_ids)/interval)
-    hdf5_imagelist = ['./data/image/image_full_ref_' + str(i) + '.hdf5' for i in range(20)]
-    print("iters", iters)
-    for ii in range(0,iters):
-        i0 =ii*interval
-        i1 = (ii+1)*interval
-        print("reading files from {} to {}".format(i0, i1))
-        XD =gen_embeddingsSeq(base_model, hdf5_imagelist[ii], file_ids=ref_ids[i0:i1],
-                        outFile='./data/embed/full_ref_em_' +str(ii)+ name + '.hdf5',batch=100)
-        del XD
+    XD =[]
+    XQ =[]
+    print("Total IDS:", len(ref_ids))
+    if gen_embed==True:
+      interval = 50000#50K
+      iters = int(len(ref_ids)/interval)
+      hdf5_imagelist = ['./data/image/image_full_ref_' + str(i) + '.hdf5' for i in range(20)]
+      print("iters", iters)
+      for ii in range(0,iters):
+          i0 =ii*interval
+          i1 = (ii+1)*interval
+          print("reading files from {} to {}".format(i0, i1))
+          XD =gen_embeddingsSeq(base_model, hdf5_imagelist[ii], file_ids=ref_ids[i0:i1],
+                          outFile='./data/embed/full_ref_em_' +str(ii)+ name + '.hdf5',batch=100)
+          del XD
     
-
     anchor_img_dir = "D:/prjs/im-similarity/data/query"
     q_image_list, q_ids = getImIds('./list_files/dev_queries', anchor_img_dir)
-    XQ =gen_embeddingsSeq(base_model, './data/image/image_dev_queries.hdf5',q_ids,
-                          outFile='./data/embed/full_query_em_resnet50Reg.hdf5', batch=50)
-    #q_image_ids, XQ = read_descriptors(['./data/embed/full_query_em_resnet50Reg.hdf5'])
-
+    if gen_embed==True:
+      XQ =gen_embeddingsSeq(base_model, './data/image/image_dev_queries.hdf5',q_ids,
+                          outFile='./data/embed/full_query_em_'+name+'.hdf5', batch=50)
+    else:
+      q_image_ids, XQ = read_descriptors(['./data/embed/full_query_em_'+name+'.hdf5'])
+    
     db_descs = ['./data/embed/full_ref_em_' + str(i) + name + '.hdf5' for i in range(20)]
     db_image_ids, XD = read_descriptors(db_descs)
-    get_optimizedmetrics(XQ, q_ids, XD, ref_ids, 'final',submission=False)
+    get_optimizedmetrics(XQ, q_ids, XD, ref_ids, 'final',submission=True)
 
 def train_public_gt(epochs=20, bs=32):
+    print_date()
     base_model = embedding_model()
     model = complete_model(base_model)
     model.load_weights("./models/weights/" + "resnet50Reg0.8complete_final.hdf5")

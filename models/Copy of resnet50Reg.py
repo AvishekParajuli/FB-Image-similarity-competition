@@ -19,23 +19,17 @@ def embedding_model():
     # used for the embedding model.
     base_cnn = keras.applications.ResNet50(weights="imagenet", input_shape=IM_SIZE + (3,), include_top=False)
     flatten = keras.layers.Flatten()(base_cnn.output)
-    drop1 = keras.layers.Dropout(rate=0.3)(flatten)
+    drop1 = keras.layers.Dropout(rate=0.25)(flatten)
     dense1 = keras.layers.Dense(256, activation="relu")(drop1)
     dense1 = keras.layers.BatchNormalization()(dense1)
     output = keras.layers.Dense(256)(dense1)
     output = Lambda(my_norm)(output)
 
     trainable = False
-    count=0
     for layer in base_cnn.layers:
         if layer.name == "conv5_block1_out":
-            print("conv5_block found")
-            layer.trainable = True
+            trainable = True
         layer.trainable = trainable
-        if count >143:
-            layer.trainable = True
-        count+= 1
-    print("total no of layers: ", count)
 
     mdl = Model(inputs=base_cnn.input, outputs=output, name="Embedding")
     return mdl

@@ -1,4 +1,4 @@
-from loader.fb_image_gen_pre import *
+from loader.fb_image_gen_pre_tf import *
 import pickle
 import datetime
 import time
@@ -27,7 +27,9 @@ def getMatchingScore(I , k=1):
     else:
         matches = [index for index, value in enumerate(I) if index in value[0:k]]
     non_matching = [i for i in range(lenI) if i not in matches]
-    print("Top K={} matchign accuracy {}% : ".format(k, len(matches)/lenI *100))
+    acc = len(matches)/lenI *100
+    print("Top K={} matchign accuracy {}% : ".format(k, acc))
+    return acc
 
 def gen_embeddings(base_model, file_list, file_ids, outFile):
     from tqdm import tqdm
@@ -43,7 +45,7 @@ def gen_embeddings(base_model, file_list, file_ids, outFile):
     batch =32
     steps = len(file_list)//batch
     id_Arr=[]
-    embedding_Arr=np.array((batch,256))
+    embedding_Arr=np.array((batch,EM_DIM))
     print("Inference for generating embedding. THis will take long....")
     timestart = time.time()
     for idx in tqdm(range(steps)):
@@ -57,6 +59,7 @@ def gen_embeddings(base_model, file_list, file_ids, outFile):
         id_Arr.append(data[1])# not used
     timestop = time.time()
     print("Time for generation {} mins".format((timestop - timestart)/60))
+    print("embedding array shape:", embedding_Arr.shape)
     if outFile != '':
         from isc.io import write_hdf5_descriptors, read_descriptors
         print("Writing embedding to file{}".format(outFile))
@@ -71,7 +74,7 @@ def gen_embeddingsSeq(base_model,myHd5File, file_ids, outFile, batch=50):
     batch =batch
     steps = len(file_ids)//batch
     id_Arr=[]
-    embedding_Arr=np.array((batch,256))
+    embedding_Arr=np.array((batch,EM_DIM))
     hdf5loader = Hdf5Sequence(myHd5File,idlist=file_ids, batch_size=batch)
     print("Inference for generating embedding. THis will take long....")
     timestart = time.time()
@@ -90,6 +93,7 @@ def gen_embeddingsSeq(base_model,myHd5File, file_ids, outFile, batch=50):
     newids = newids.ravel()
     minlen = min(len(file_ids), len(newids))
     assert (all(newids[0:minlen] == file_ids[0:minlen]))# error if they aren't equal
+    print("*****embedding array shape:", embedding_Arr.shape)
     if outFile != '':
         from isc.io import write_hdf5_descriptors, read_descriptors
         print("Writing embedding to file{}".format(outFile))
@@ -296,7 +300,7 @@ def getEmbeddingMetrics(query_descs,db_descs):
     query_image_ids, xq = read_descriptors(query_descs)
 
     print("**********Faisss comparision**************")
-    d=256
+    d=xq.shape[-1]
     k=5
     index = faiss.IndexFlatL2(d)  # build the index
     print(index.is_trained)
@@ -362,7 +366,7 @@ def analyzeEmbedingMetrics(query_descs,db_descs):
 
     # see if using combination of cosine similarity and L2scores can help
 
-def findAccuracy(base_model, save= False):
+def findAccuracy(base_model, save= False, acc=-1):
     if save:
         XQ = gen_embeddings(base_model=base_model, file_list=Q_List, file_ids=Q_IDS,
                             outFile='./data/subset_query_'+myModelName()  +'.hdf5')
@@ -374,16 +378,16 @@ def findAccuracy(base_model, save= False):
     # print(XQ.shape)
     # print(XD.shape)
 
-    d = 256
+    d = XQ.shape[-1]#256
     index = faiss.IndexFlatL2(d)
     k = 1
     index.add(XD)
     D, I = index.search(XQ, k)  # search top k
     print("matching index after training....")
     # print(I)
-    getMatchingScore(I, k)
-    print("I[0:10", I[0:10])
-    print("D[0:10", D[0:10])
+    acc = getMatchingScore(I, k)
+    print("I[0:5", I[0:5])
+    print("D[0:5", D[0:5])
     return I
 
 def save_images(imname,outdir):
@@ -417,7 +421,7 @@ def test_generator():
 def analyze_subsetAcc():
     query_image_ids, XQ = read_descriptors(['./data/subset_query_resnet50Reg0.8.hdf5'])
     ref_image_ids, XD = read_descriptors(['./data/subset_ref_resnet50Reg0.8.hdf5'])
-    d = 256
+    d = XQ.shape[-1]
     index = faiss.IndexFlatL2(d)
     k = 1
     index.add(XD)
@@ -451,7 +455,7 @@ def calculate_faissmetrics_inference():
     from isc.io import read_ground_truth
     from isc.descriptor_matching import knn_match_and_make_predictions
     import pickle
-    from models.resnet50Reg import embedding_model
+    #from getmodel import *
     from isc.metrics import to_arrays
     gt_matches = read_ground_truth('./list_files/subset_1_ground_truth.csv')
     I0 = pickle.load('./data/L2Index_2_prev.p')
@@ -465,6 +469,8 @@ def calculate_faissmetrics_inference():
                                "C:/Users/parajav/PycharmProjects/isc/reference/reference")
     xd = gen_embeddingsSeq(base_model, './data/image/im_subset_ref.hdf5', rids,
                            outFile='./data/embed/subset_ref_em_resnet50Reg.hdf5', batch=50)
+    print("******xq shape:", xq.shape[-1])
+    print("******xd shape:", xd.shape[-1])
     predictions = knn_match_and_make_predictions(
         xq, qids, xd, rids, 1, metric=faiss.METRIC_L2 )
     #load dump file

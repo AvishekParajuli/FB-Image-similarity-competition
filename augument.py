@@ -1,6 +1,13 @@
 import albumentations as A
 from settings import *
 import numpy as np
+import augly.image as imaugs
+import augly.utils as utils
+from augly.image import (aug_np_wrapper, overlay_emoji, scale, random_noise, color_jitter)
+from augly.image import overlay_stripes,overlay_text,pad,pad_square,pixelization, meme_format
+from augly.image import masked_composite,meme_format,opacity,overlay_emoji,overlay_image,overlay_onto_screenshot
+import os
+import cv2
 
 imsize=IM_SIZE[0]
 augHndl =[]
@@ -8,39 +15,76 @@ augHndl1 = A.Compose([
     A.Blur(blur_limit=7),
     A.HorizontalFlip(p=0.5),#(-0.9, 1.2)
     #albu.Normalize(),
-    A.RandomBrightnessContrast(contrast_limit=0.3, brightness_limit=0.3, brightness_by_max=True),
+    A.RandomBrightnessContrast(contrast_limit=0.3, brightness_limit=0.3),
     A.VerticalFlip(p=0.5),
     A.GaussNoise(),
-    A.RandomSnow(brightness_coeff=1.5, p=0.5),
+    #A.RandomSnow(brightness_coeff=1.5, p=0.5),
     #
     A.RandomSizedCrop((imsize - 50, imsize - 1), imsize, imsize)
     ])
 augHndl2 = A.Compose([
-    A.ElasticTransform(p=0.5),
-    A.ISONoise(),
-    #
-    A.RandomSizedCrop((imsize - 50, imsize - 1), imsize, imsize)
+    #A.ElasticTransform(p=0.5),
+    A.ColorJitter(p=0.5),
+    A.GaussNoise(),
+    A.Resize( imsize, imsize,3)
+    #A.RandomSizedCrop((imsize - 30, imsize - 30), imsize, imsize)
 ])
 augHndl3 = A.Compose([
     A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.50, rotate_limit=45, p=0.7),
     A.Flip(p=0.5),
-    A.ISONoise(),
+    A.GaussNoise(),
     A.RandomSizedCrop((imsize - 50, imsize - 1), imsize, imsize)
 ])
 
 def get_augument_image_internal(image):
-    choice = np.random.choice([1,2,3])
-    #choice=1 #for test
+    choice = np.random.choice([1,2,2,2,3])
+    #choice=2 #for test
     #print("choice= ", choice)
     hndl=augHndl1
     if choice==1:
         hndl = augHndl1
     elif choice ==2:
         hndl = augHndl2
+        image = apply_aug_internal(image)
+        #print("interim-img-after augly: ", image.shape, image.dtype, np.max(image), np.min(image))
     else:
         hndl = augHndl3
     augmented = hndl(image=image)
-    return augmented['image']
+    outimg = augmented['image']
+    if outimg.shape[-1]==4:
+      outimg = cv2.cvtColor(outimg, cv2.COLOR_RGBA2RGB)
+    #print("outimg: ",outimg.shape, outimg.dtype, np.max(outimg), np.min(outimg))
+    return outimg
+
+import numpy as np
+
+def apply_aug_internal(img, choice=-1):
+  selected = np.random.randint(0,10)
+  if choice!=-1:
+    selected=choice
+  #print("Augly current choice: ", selected)
+  aug_img = np.array((1,1))
+  rnd_1_to_5 = np.random.randint(1,5)
+  #print("rnd_1_to_5: ",rnd_1_to_5)
+  if selected==0:
+    aug_img = aug_np_wrapper(img,overlay_emoji, **{'opacity': 0.7, 'y_pos': 0.45, 'emoji_size':0.13*rnd_1_to_5} )
+    aug_img= cv2.cvtColor(aug_img, cv2.COLOR_RGBA2RGB)
+  elif selected ==1:
+    aug_img = aug_np_wrapper(img,pixelization,**{'ratio':0.1*rnd_1_to_5})
+  elif selected ==2:
+    aug_img = aug_np_wrapper(img,overlay_text )
+  elif selected ==3:
+    aug_img = aug_np_wrapper(img,overlay_stripes,**{'line_width':0.13*rnd_1_to_5,'line_angle':10*(rnd_1_to_5-1)}  )
+  elif selected ==4:
+    aug_img = aug_np_wrapper(img,meme_format  , **{'caption_height':17*rnd_1_to_5,'meme_bg_color':(0, 0, 0), 'text_color':(255,255,255)} )
+  elif selected ==5:
+    aug_img = aug_np_wrapper(img, pad_square)
+  else:
+    aug_img = aug_np_wrapper(img,overlay_onto_screenshot  , template_filepath=os.path.join(utils.SCREENSHOT_TEMPLATES_DIR, "mobile.png") )
+  if aug_img.shape[-1]==4:
+      aug_img = cv2.cvtColor(aug_img, cv2.COLOR_RGBA2RGB)
+  
+  return aug_img
 
 def add_noise(image):
     noise_typ = np.random.choice(["gauss","s&p"])
@@ -80,4 +124,5 @@ def add_noise(image):
 
 
 def apply_augumentaion_wrapper(img):
-    return get_augument_image_internal(np.squeeze(img))
+  #return img
+  return get_augument_image_internal(np.squeeze(img))

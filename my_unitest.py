@@ -1,14 +1,18 @@
 import augument as myaug
-from loader.fb_image_gen_pre import plot_triplets,plt,read_image, get_triplet, Hdf5Sequence,plot_batches
+from loader.fb_image_gen_pre import *
 from settings import *
 from utils import getMinMax
 import numpy as np
+import time
+
+from models.resnet50Reg import *
 
 
 def plot_images(imlist):
     imlen= len(imlist)
     plt.figure(figsize=(6, 2))
     for i in range(imlen):
+
         plt.subplot(1, imlen,i+1)
         plt.imshow(imlist[i])
         if i==0:
@@ -51,7 +55,7 @@ def mytest_augumentation():
         myaug.A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.50, rotate_limit=45, p=1.0)
         ])# lower grid size(default also good)
     transform6 = myaug.A.Compose([
-        myaug.A.RandomToneCurve(p=1.0,scale =0.3)
+        myaug.A.ColorJitter(p=1.0)
     ])
     b1 = transform1(image=a)["image"]
     b2 = transform2(image=a)["image"]
@@ -71,9 +75,42 @@ def mytest_hdf5loader():
     batchdata1 = hdf5loader[1]
     plot_batches(batchdata)
 
+def mytest_train_hdf5_loader():
+
+    #'''
+    train_generator = generate_triplets_train_hdfseq(start=0, stop=40000, batch_sz=1)#sz=1 will have same anchor and neg
+    data = next(train_generator)
+    i = 0  # 0->>>>>>99
+    plot_triplets_batch(data)
+
+    test_generator = generate_triplets_train_hdfseq(start=0, stop=40000, batch_sz=100, forcePrep = False)
+    data = next(test_generator)
+    i = 0  # 0->>>>>>99
+    plot_triplets_batch(data)
+    #'''
+
+    test_generator = generate_triplets_hdfseq(batch_sz=1)
+    data = next(test_generator)
+    plot_triplets_batch(data)
+
+    test_generator = generate_triplets_hdfseq( batch_sz=100, forcePrep = False)
+    data = next(test_generator)
+    plot_triplets_batch(data)
+
+
+    base_model = embedding_model()
+
+    triplets, labels = get_batch_semihardNeg(base_model, test_generator, draw_batch_size=100, actual_batch_size=16,
+                                             alpha=1.0)
+    plot_triplets_batch((triplets, labels))
+
+
+
+
 def main():
-    mytest_augumentation()
+    #mytest_augumentation()
     #mergeHdf5Files()
+    mytest_train_hdf5_loader()
 
 def dummy():
     import h5py
@@ -90,13 +127,16 @@ def dummy():
     for i in d_names:
         for j in d_struct[i]:
             os.system('h5copy -i %s -o output.h5 -s %s -d %s' % (i, j, j))
+
+
 def mergeHdf5Files():
     import h5py
     import os
     d_names = ['./data/image/image_extended_Ref.hdf5', './data/image/image_full_ref_0.hdf5',
                './data/image/image_full_ref_1.hdf5','./data/image/image_full_ref_2.hdf5']
-    outfilename= './data/image/mergedRefExtended_0to2.hdf5'
+    outfilename= './data/image/mergedRefExtended0_2_chunk100_cont.hdf5'
     print("creating merged filename with name: ", outfilename)
+    timeStart = time.time()
     with h5py.File(outfilename, mode='w') as h5fw:
         row1 = 0
         file_ids =[]
@@ -107,19 +147,24 @@ def mergeHdf5Files():
             dslen = h5fr['vectors'].shape[0]
             dsshape = h5fr['vectors'].shape
             if row1 == 0:
-                h5fw.create_dataset('vectors', dtype='uint8', shape=dsshape, maxshape=(None, 160,160,3))
+                maxrows = dslen+(len(d_names)-1)*50000
+                chunksz = (100,160,160,3)
+                h5fw.create_dataset('vectors', dtype='uint8', shape=dsshape, maxshape=(maxrows, 160,160,3),
+                                    chunks=chunksz)
             if row1 + dslen <= len(h5fw['vectors']):
-                h5fw['vectors'][row1:row1 + dslen, :] = h5fr['vectors']#[:]
+                h5fw['vectors'][row1:row1 + dslen, :] = np.ascontiguousarray(h5fr['vectors'], dtype='uint8')#[:]
                 #im_names= np.array(myfile["image_names"][:]).astype(str).tolist()
             else:
                 h5fw['vectors'].resize((row1 + dslen, 160,160,3))
-                h5fw['vectors'][row1:row1 + dslen, :,:] = h5fr['vectors']#[:]
+                h5fw['vectors'][row1:row1 + dslen, :,:] = np.ascontiguousarray(h5fr['vectors'], dtype='uint8')
             row1 += dslen
             im_names = np.array(h5fr["image_names"][:]).astype(str).tolist()
             file_ids.extend(im_names)
         image_names = np.array([bytes(name, "ascii") for name in file_ids])
         h5fw.create_dataset("image_names", data=image_names)
     print("========completeing writing merged file")
+    timestop = time.time()
+    print("Time for creatinf file {} mins".format((timestop - timeStart) / 60))
 
 
 if __name__ == '__main__':
