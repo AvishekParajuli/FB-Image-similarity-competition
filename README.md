@@ -1,7 +1,9 @@
 # Relection on Participation at Facebook Image-similarity-comptetition and winnning solution
 
 The task is to devise an algorithm to identify copy detection between images at large scale(million images). 
-Learn a metric to identify similar images and dissimilar images
+Learn a metric to identify similar images and dissimilar images.
+
+- Summary slides for [Relection on participation at FB image similarity challenge](/Reflection%20on%20participation%20at%20FB%20image%20similarity%20challenge.pdf)
 
 ## Approach
 - Base solution: ORB desciptor and matching
@@ -26,4 +28,4 @@ Learn a metric to identify similar images and dissimilar images
 ![image](https://user-images.githubusercontent.com/26102326/165581351-16c05b25-f02a-4fa6-95b8-b4bd4445151f.png)
 
 
-This is my [slide](/Reflection%20on%20participation%20at%20FB%20image%20similarity%20challenge.pdf)
+
