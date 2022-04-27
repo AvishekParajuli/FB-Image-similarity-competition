@@ -25,4 +25,5 @@ Learn a metric to identify similar images and dissimilar images
 ![image](https://user-images.githubusercontent.com/26102326/165581323-71378fe9-57e5-4c2b-9ade-7c10ffcba2ec.png)
 ![image](https://user-images.githubusercontent.com/26102326/165581351-16c05b25-f02a-4fa6-95b8-b4bd4445151f.png)
 
-![Presentation Slide]:(./Reflection on participation at FB image similarity challenge.pdf)
+
+This is my [slide](blob/main/Reflection%20on%20participation%20at%20FB%20image%20similarity%20challenge.pdf)
