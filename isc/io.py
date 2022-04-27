@@ -44,6 +44,26 @@ def read_predictions(filename: str) -> List[PredictedMatch]:
             predictions.append(PredictedMatch(q, db, float(score)))
     return predictions
 
+def read_predictions_as_arrays(filename: str):
+    """
+    Read predictions csv file and returns
+    Must contain query_image_id,db_image_id,score on each line.
+    Header optional
+    """
+    q_list = []
+    db_list = []
+    score_list =[]
+    with open(filename, "r") as cfile:
+        for line in cfile:
+            line = line.strip()
+            if line == "query_id,reference_id,score" or line == "query_id,reference_id":
+                continue
+            q, db, score = line.split(",")
+            q_list.append(q)
+            db_list.append(db)
+            score_list.append(score)
+    return q_list,db_list,score_list
+
 
 def write_predictions(
     predictions: Iterable[PredictedMatch],
@@ -192,6 +212,31 @@ def read_descriptors(filenames):
     """ read descriptors from a set of HDF5 files """
     descs = []
     names = []
+    for filename in filenames:
+        hh = h5py.File(filename, "r")
+        descs.append(np.array(hh["vectors"]))
+        names += np.array(hh["image_names"][:], dtype=object).astype(str).tolist()
+    # strip paths and extensions from the filenames
+    names = [
+        name.split('/')[-1]
+        for name in names
+    ]
+    names = [
+        name[:-4] if name.endswith(".jpg") or name.endswith(".png") else name
+        for name in names
+    ]
+    return names, np.vstack(descs)
+def read_descriptors_batch(filenames, batchsize,current):
+    """ read descriptors from a set of HDF5 files """
+    descs = []
+    names = []
+    hh = h5py.File(filename, "r")#call these only once
+    data_size = hh["vectors"].shape[0]#
+    size_per_batch = data_size/batchsize
+    start = current*size_per_batch
+    end = (current+1)*size_per_batch
+    descs.append(np.array(hh["vectors"][start:end]))
+    names += np.array(hh["image_names"][start:end], dtype=object).astype(str).tolist()
     for filename in filenames:
         hh = h5py.File(filename, "r")
         descs.append(np.array(hh["vectors"]))

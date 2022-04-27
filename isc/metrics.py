@@ -70,7 +70,8 @@ def precision_recall(
 
     ntp = np.cumsum(y_true)  # number of true positives <= threshold
     nres = np.arange(len(y_true)) + 1  # number of results
-
+    print("ntp at 9={}, 49={},99={}, 499={}, 999={},\n 4999={},7999={}, 9999={},11999={}".format(ntp[9], ntp[49],ntp[99],ntp[499],ntp[999],ntp[4999],ntp[7999],ntp[9999],ntp[11999]))
+    print("probas_pred at 9={}, 49={},99={}, 499={}, 999={},\n 4999={},7999={}, 9999={},11999={}".format(probas_pred[9],probas_pred[49],probas_pred[99],probas_pred[499],probas_pred[999],probas_pred[4999],probas_pred[7999],probas_pred[9999],probas_pred[11999]))
     precisions = ntp / nres
     recalls = ntp / num_positives
     return precisions, recalls, probas_pred
@@ -190,7 +191,10 @@ def evaluate(
 ) -> Metrics:
     predictions = sanitize_predictions(predictions)
     y_true, probas_pred = to_arrays(gt_matches, predictions)
+    print("*******Total no of correct predictions: ",len(probas_pred[y_true]))
     p, r, t = precision_recall(y_true, probas_pred, len(gt_matches))
+    print("precision at p[99]={}, p[499]={},p[999]={}, p[4999]={},p[9999]={}".format(p[99],p[499],p[999],p[4999],p[9999]))
+    print("recall at r[99]={}, r[499]={},r[999]={}, r[4999]={},r[9999]={}".format(r[99],r[499],r[999],r[4999],r[9999]))
     ap = average_precision(r, p)
     pp90, rp90, tp90 = find_operating_point(p, r, t, required_x=0.9)  # @Precision=90%
     ranks = find_tp_ranks(gt_matches, predictions)

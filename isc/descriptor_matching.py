@@ -6,9 +6,10 @@ import faiss
 from faiss.contrib import exhaustive_search
 import logging
 
-import cv2
-
 from .metrics import PredictedMatch
+import cv2
+from baselines.orb_baseline import compute_orb_features
+from settings import *
 
 def query_iterator(xq):
     """ produces batches of progressively increasing sizes """
@@ -130,7 +131,7 @@ def match_and_make_predictions(xq, query_image_ids, xb, db_image_ids, num_result
     return predictions
 
 
-def knn_match_and_make_predictions(xq, query_image_ids, xb, db_image_ids, k, ngpu=-1, metric=faiss.METRIC_L2):
+def knn_match_and_make_predictions(xq, query_image_ids, xb, db_image_ids, k, ngpu=-1, metric=faiss.METRIC_L2,DIST_TH=1000):
 
     if faiss.get_num_gpus() == 0 or ngpu == 0:
         D, I = faiss.knn(xq, xb, k, metric)
@@ -142,9 +143,33 @@ def knn_match_and_make_predictions(xq, query_image_ids, xb, db_image_ids, k, ngp
         D, I = index.search(xq, k=k)
     nq = len(xq)
 
+    Dthresh = DIST_TH #- 0.4511981  # DIST_TH
     if metric == faiss.METRIC_L2:
         # use negated distances as scores
+        #print("****************not doing negation")
         D = -D
+        Dthresh = -Dthresh
+
+
+    #Dthresh = -1.5 #no op
+    useORB = False
+    ORBMatch =[]
+    ORBScores =[]
+    if useORB:
+        for ii in range(nq):
+            #this Q_List needs tob e changed for full generation
+            oxd = compute_orb_features(R_List[ii])
+            oxq = compute_orb_features(Q_List[ii])
+            try:
+                currScore, isMatch = orb_single_match(oxd, oxq)
+                ORBMatch.append(isMatch)
+                ORBScores.append(1-currScore)
+            except:
+                print("*********Empty description set for i = {},".format(ii))
+                ORBMatch.append(True)
+                ORBScores.append(-1)
+        import pickle
+        pickle.dump([ORBScores, ORBMatch], open("./orbNet_relax.p", "wb"))
 
     predictions = [
         PredictedMatch(
@@ -154,6 +179,8 @@ def knn_match_and_make_predictions(xq, query_image_ids, xb, db_image_ids, k, ngp
         )
         for i in range(nq)
         for j in range(k)
+        if D[i,j]>Dthresh
+        #if ORBMatch[i] ==True
     ]
     return predictions
 
@@ -171,10 +198,10 @@ def range_result_read(fname):
 
 def orb_single_match(descriptors_train, descriptors_query):
     DEBUG =False
-    ORB_distThresh = 60
-    NUM_MATCHES_TH = 35
+    ORB_distThresh = 100
+    NUM_MATCHES_TH = 10#35
     # define %GOOD match
-    ORB_ResultThresh = 0.50  # >50% match  is good
+    ORB_ResultThresh = 0.40  # >50% match  is good
     bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
     matches = bf.match(descriptors_train, descriptors_query)
     num_matches = len(matches)
@@ -195,7 +222,7 @@ def orb_single_match(descriptors_train, descriptors_query):
         isMatch = (nGoodMatches / len(matches) > ORB_ResultThresh)
     else:
         isMatch = False
-        score = 0
+        score = num_matches
     #Score is in %(1.0->total match; 0-> no match)
     #negate the score as lowe score means MATCH
     score = 1.0-score# no this is dist
@@ -264,10 +291,10 @@ def net_match_and_make_predictions(xq, query_image_ids, xb, db_image_ids,Max_Mat
         #print(f"processing {qi}/{len(num_QImages)} {query_image_ids[qi]}", end="\r", flush=True)
         for di in range(num_dbImages):
             if di in DB_match_ids:#dont compare with already found Reference
-                continue;
+                continue
             try:
-                currScore=cosine_similarity(xb[di],xq[qi])
-                if currScore>0.5:
+                currScore=abs(cosine_similarity(xb[di],xq[qi]))
+                if currScore>0.86:
                     print("matched Query # {}, with Refernce #{} ".format(qi, di))
                     Dist[qi,counter] = currScore
                     DB_match_ids[qi,counter] = di
